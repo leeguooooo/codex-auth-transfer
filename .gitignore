@@ -1,0 +1,11 @@
+# Codex 凭据 bundle 文件（包含敏感信息，不应提交）
+*.tar.gz
+codex-auth-bundle*.tar.gz
+
+# 临时文件
+*.tmp
+*.bak
+*.fix_tmp
+
+# 导入脚本临时文件
+import.sh
