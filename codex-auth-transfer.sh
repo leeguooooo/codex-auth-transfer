@@ -347,6 +347,92 @@ while IFS= read -r rel || [ -n "\${rel}" ]; do
   find "\${dest}" -type f -exec chmod 600 {} +
 done < "\${LISTFILE}"
 
+# 自动修复 Codex 配置错误
+log "正在检查并修复配置..."
+config_fixed=0
+
+# 修复所有恢复的 Codex 配置目录中的配置文件
+while IFS= read -r rel || [ -n "\${rel}" ]; do
+  [ -z "\${rel}" ] && continue
+  dest="\${HOME}/\${rel}"
+  if [ ! -d "\${dest}" ]; then
+    continue
+  fi
+  
+  # 查找所有配置文件并修复
+  find "\${dest}" -maxdepth 3 -type f \( -name "*.toml" -o -name "*.json" -o -name "config" \) 2>/dev/null | while read -r config_file; do
+    if [ ! -f "\${config_file}" ] || [ ! -w "\${config_file}" ]; then
+      continue
+    fi
+    
+    # 检查是否包含 model_reasoning_effort 配置
+    if ! grep -q "model_reasoning_effort" "\${config_file}" 2>/dev/null; then
+      continue
+    fi
+    
+    # 检查是否包含无效值（xhigh 或其他非标准值）
+    local needs_fix=0
+    local current_value=""
+    
+    # 提取当前值
+    if grep -qE 'model_reasoning_effort\s*=' "\${config_file}" 2>/dev/null; then
+      # TOML 格式: model_reasoning_effort = "xhigh"
+      current_value=\$(grep -E 'model_reasoning_effort\s*=' "\${config_file}" | \
+        sed -E 's/.*model_reasoning_effort\s*=\s*["\047]?([^"\047\s,}]+).*/\1/' | head -1 | tr -d ' ')
+    elif grep -qE '"model_reasoning_effort"' "\${config_file}" 2>/dev/null; then
+      # JSON 格式: "model_reasoning_effort": "xhigh"
+      current_value=\$(grep -E '"model_reasoning_effort"' "\${config_file}" | \
+        sed -E 's/.*"model_reasoning_effort"\s*:\s*"([^"]+)".*/\1/' | head -1)
+    fi
+    
+    # 检查是否为有效值
+    if [ -n "\${current_value}" ]; then
+      case "\${current_value}" in
+        minimal|low|medium|high) needs_fix=0 ;;
+        *) needs_fix=1 ;;
+      esac
+    fi
+    
+    # 如果需要修复
+    if [ "\${needs_fix}" = "1" ]; then
+      log "修复配置: \${config_file} (model_reasoning_effort: \${current_value} -> high)"
+      
+      # 创建临时文件
+      local tmp_file="\${config_file}.fix_tmp"
+      local sed_success=0
+      
+      # 尝试修复 TOML 格式
+      if sed -E 's/(model_reasoning_effort\s*=\s*["\047]?)[^"\047\s,}]+/\1high/g' "\${config_file}" > "\${tmp_file}" 2>/dev/null; then
+        sed_success=1
+      # 尝试修复 JSON 格式
+      elif sed -E 's/("model_reasoning_effort"\s*:\s*")[^"]+/\1high/g' "\${config_file}" > "\${tmp_file}" 2>/dev/null; then
+        sed_success=1
+      fi
+      
+      # macOS 兼容性：如果没有 -E，尝试基本 sed
+      if [ "\${sed_success}" = "0" ]; then
+        if sed 's/xhigh/high/g' "\${config_file}" > "\${tmp_file}" 2>/dev/null; then
+          sed_success=1
+        fi
+      fi
+      
+      if [ "\${sed_success}" = "1" ] && [ -f "\${tmp_file}" ] && [ -s "\${tmp_file}" ]; then
+        mv "\${tmp_file}" "\${config_file}"
+        chmod 600 "\${config_file}" 2>/dev/null
+        config_fixed=1
+      else
+        rm -f "\${tmp_file}" 2>/dev/null
+      fi
+    fi
+  done
+done < "\${LISTFILE}"
+
+if [ "\${config_fixed}" = "1" ]; then
+  log "配置修复完成。"
+else
+  log "配置检查完成，无需修复。"
+fi
+
 rm -f "\${BUNDLE_NAME}"
 log "导入完成！"
 log "注意: 某些 CLI 会将令牌绑定到主机/用户；如果 Codex 拒绝，请使用设备代码登录或隧道。"
