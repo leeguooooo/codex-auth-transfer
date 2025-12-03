@@ -455,6 +455,8 @@ httpd.serve_forever()
 # 交互式菜单
 show_menu() {
   clear
+  local default_bundle="${DEFAULT_BUNDLE:-codex-auth-bundle.tar.gz}"
+  local default_port="${DEFAULT_PORT:-8888}"
   cat <<EOF
 ╔═══════════════════════════════════════════════════════════╗
 ║         Codex 凭据传输工具 - 交互式菜单                  ║
@@ -472,9 +474,9 @@ EOF
   case "$choice" in
     1)
       echo ""
-      echo "Bundle 文件名（回车使用默认: $DEFAULT_BUNDLE）:"
+      echo "Bundle 文件名（回车使用默认: ${default_bundle}）:"
       read -r bundle_name
-      bundle_name="${bundle_name:-$DEFAULT_BUNDLE}"
+      bundle_name="${bundle_name:-${default_bundle}}"
       do_export "$bundle_name"
       echo ""
       echo "按回车继续..."
@@ -483,9 +485,9 @@ EOF
       ;;
     2)
       echo ""
-      echo "Bundle 文件路径（回车使用默认: $DEFAULT_BUNDLE）:"
+      echo "Bundle 文件路径（回车使用默认: ${default_bundle}）:"
       read -r bundle_file
-      bundle_file="${bundle_file:-$DEFAULT_BUNDLE}"
+      bundle_file="${bundle_file:-${default_bundle}}"
       echo ""
       echo "覆盖现有文件？(s/N):"
       read -r force_choice
@@ -501,13 +503,13 @@ EOF
       ;;
     3)
       echo ""
-      echo "Bundle 文件路径（回车使用默认: $DEFAULT_BUNDLE）:"
+      echo "Bundle 文件路径（回车使用默认: ${default_bundle}）:"
       read -r bundle_file
-      bundle_file="${bundle_file:-$DEFAULT_BUNDLE}"
+      bundle_file="${bundle_file:-${default_bundle}}"
       echo ""
-      echo "服务器端口（回车使用默认: $DEFAULT_PORT）:"
+      echo "服务器端口（回车使用默认: ${default_port}）:"
       read -r port_input
-      port="${port_input:-$DEFAULT_PORT}"
+      port="${port_input:-${default_port}}"
       do_serve "$port" "$bundle_file"
       echo ""
       echo "按回车继续..."
