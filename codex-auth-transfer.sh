@@ -235,14 +235,15 @@ generate_import_script() {
   local server_port="$2"
   local bundle_file="$3"
   local bundle_name="${bundle_file##*/}"
+  # 使用不带引号的 heredoc，但转义所有需要在运行时展开的变量
   cat <<IMPORT_SCRIPT_EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
+IFS=\$'\n\t'
 
 PROGRAM="codex-auth-import"
-log() { printf '[%s] %s\n' "$PROGRAM" "$*"; }
-err() { printf '[%s][错误] %s\n' "$PROGRAM" "$*" 1>&2; }
+log() { printf '[%s] %s\n' "\$PROGRAM" "\$*"; }
+err() { printf '[%s][错误] %s\n' "\$PROGRAM" "\$*" 1>&2; }
 
 log "正在开始导入 Codex 凭据..."
 
@@ -269,18 +270,18 @@ fi
 BUNDLE_URL="http://\${SERVER_HOST}:\${SERVER_PORT}/bundle"
 
 log "服务器: \${SERVER_HOST}:\${SERVER_PORT}"
-log "正在从 \${BUNDLE_URL} 下载 bundle: \$BUNDLE_NAME"
+log "正在从 \${BUNDLE_URL} 下载 bundle: \${BUNDLE_NAME}"
 
 if command -v curl >/dev/null 2>&1; then
-  curl -sSL "\$BUNDLE_URL" -o "\$BUNDLE_NAME"
+  curl -sSL "\${BUNDLE_URL}" -o "\${BUNDLE_NAME}"
 elif command -v wget >/dev/null 2>&1; then
-  wget -q -O "\$BUNDLE_NAME" "\$BUNDLE_URL"
+  wget -q -O "\${BUNDLE_NAME}" "\${BUNDLE_URL}"
 else
   err "未找到 curl 或 wget。请安装其中一个。"
   exit 1
 fi
 
-if [ ! -f "\$BUNDLE_NAME" ]; then
+if [ ! -f "\${BUNDLE_NAME}" ]; then
   err "下载 bundle 失败。"
   exit 1
 fi
@@ -289,64 +290,64 @@ log "Bundle 已下载。正在解压..."
 
 # 解压并恢复
 TMPDIR=\$(mktemp -d)
-if [ ! -d "\$TMPDIR" ]; then
+if [ ! -d "\${TMPDIR}" ]; then
   err "无法创建临时目录。"
   exit 1
 fi
-trap 'rm -rf "\$TMPDIR"' EXIT
+trap 'rm -rf "\${TMPDIR}"' EXIT
 
 # 确保临时目录存在且可访问
-if [ ! -w "\$TMPDIR" ]; then
-  err "临时目录不可写: \$TMPDIR"
+if [ ! -w "\${TMPDIR}" ]; then
+  err "临时目录不可写: \${TMPDIR}"
   exit 1
 fi
 
-tar -xzf "\$BUNDLE_NAME" -C "\$TMPDIR" || {
+tar -xzf "\${BUNDLE_NAME}" -C "\${TMPDIR}" || {
   err "解压 bundle 失败。"
   exit 1
 }
 
-LISTFILE="\$TMPDIR/.codex_auth_paths.txt"
-if [ ! -f "\$LISTFILE" ]; then
+LISTFILE="\${TMPDIR}/.codex_auth_paths.txt"
+if [ ! -f "\${LISTFILE}" ]; then
   log "未找到路径列表；正在推断..."
-  (cd "\$TMPDIR" && find . -maxdepth 2 -type d \( -path './.config/codex' -o -path './.local/share/codex' -o -path './.codex' -o -path './.codex-external/*' \) | sed 's|^./||' > "\$LISTFILE")
+  (cd "\${TMPDIR}" && find . -maxdepth 2 -type d \( -path './.config/codex' -o -path './.local/share/codex' -o -path './.codex' -o -path './.codex-external/*' \) | sed 's|^./||' > "\${LISTFILE}")
 fi
 
-if [ ! -s "\$LISTFILE" ]; then
+if [ ! -s "\${LISTFILE}" ]; then
   err "未找到凭据路径。"
   exit 1
 fi
 
 log "正在恢复凭据..."
-while IFS= read -r rel || [ -n "\$rel" ]; do
-  [ -z "\$rel" ] && continue
-  src="\$TMPDIR/\$rel"
-  dest="\$HOME/\$rel"
+while IFS= read -r rel || [ -n "\${rel}" ]; do
+  [ -z "\${rel}" ] && continue
+  src="\${TMPDIR}/\${rel}"
+  dest="\${HOME}/\${rel}"
   
-  if [ ! -e "\$src" ]; then
-    err "源路径不存在: \$src"
+  if [ ! -e "\${src}" ]; then
+    err "源路径不存在: \${src}"
     continue
   fi
   
-  mkdir -p "\$(dirname "\$dest")"
-  if [ -e "\$dest" ]; then
+  mkdir -p "\$(dirname "\${dest}")"
+  if [ -e "\${dest}" ]; then
     bkp="\${dest}.bak-\$(date +%Y%m%d-%H%M%S)"
-    log "备份: \$dest -> \$bkp"
-    mv "\$dest" "\$bkp"
+    log "备份: \${dest} -> \${bkp}"
+    mv "\${dest}" "\${bkp}"
   fi
   
-  mkdir -p "\$dest"
+  mkdir -p "\${dest}"
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --chmod=Du+rwx,Fu+rw "\$src/" "\$dest/"
+    rsync -a --chmod=Du+rwx,Fu+rw "\${src}/" "\${dest}/"
   else
-    cp -a "\$src/." "\$dest/"
+    cp -a "\${src}/." "\${dest}/"
   fi
   
-  find "\$dest" -type d -exec chmod 700 {} +
-  find "\$dest" -type f -exec chmod 600 {} +
-done < "\$LISTFILE"
+  find "\${dest}" -type d -exec chmod 700 {} +
+  find "\${dest}" -type f -exec chmod 600 {} +
+done < "\${LISTFILE}"
 
-rm -f "\$BUNDLE_NAME"
+rm -f "\${BUNDLE_NAME}"
 log "导入完成！"
 log "注意: 某些 CLI 会将令牌绑定到主机/用户；如果 Codex 拒绝，请使用设备代码登录或隧道。"
 IMPORT_SCRIPT_EOF
