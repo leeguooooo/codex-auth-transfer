@@ -288,10 +288,23 @@ fi
 log "Bundle 已下载。正在解压..."
 
 # 解压并恢复
-TMPDIR=$(mktemp -d)
+TMPDIR=\$(mktemp -d)
+if [ ! -d "\$TMPDIR" ]; then
+  err "无法创建临时目录。"
+  exit 1
+fi
 trap 'rm -rf "\$TMPDIR"' EXIT
 
-tar -xzf "\$BUNDLE_NAME" -C "\$TMPDIR"
+# 确保临时目录存在且可访问
+if [ ! -w "\$TMPDIR" ]; then
+  err "临时目录不可写: \$TMPDIR"
+  exit 1
+fi
+
+tar -xzf "\$BUNDLE_NAME" -C "\$TMPDIR" || {
+  err "解压 bundle 失败。"
+  exit 1
+}
 
 LISTFILE="\$TMPDIR/.codex_auth_paths.txt"
 if [ ! -f "\$LISTFILE" ]; then
@@ -305,10 +318,15 @@ if [ ! -s "\$LISTFILE" ]; then
 fi
 
 log "正在恢复凭据..."
-while IFS= read -r rel; do
+while IFS= read -r rel || [ -n "\$rel" ]; do
   [ -z "\$rel" ] && continue
   src="\$TMPDIR/\$rel"
   dest="\$HOME/\$rel"
+  
+  if [ ! -e "\$src" ]; then
+    err "源路径不存在: \$src"
+    continue
+  fi
   
   mkdir -p "\$(dirname "\$dest")"
   if [ -e "\$dest" ]; then
@@ -380,7 +398,9 @@ do_serve() {
   # 生成导入脚本
   local import_script
   import_script=$(mktemp)
-  generate_import_script "$local_ip" "$port" "$bundle_file" > "$import_script"
+  {
+    generate_import_script "$local_ip" "$port" "$bundle_file"
+  } > "$import_script"
   trap 'rm -f "$import_script"' EXIT
 
   log "正在启动 HTTP 服务器，端口: $port..."
