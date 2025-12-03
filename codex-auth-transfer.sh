@@ -371,8 +371,8 @@ while IFS= read -r rel || [ -n "\${rel}" ]; do
     fi
     
     # 检查是否包含无效值（xhigh 或其他非标准值）
-    local needs_fix=0
-    local current_value=""
+    needs_fix=0
+    current_value=""
     
     # 提取当前值
     if grep -qE 'model_reasoning_effort\s*=' "\${config_file}" 2>/dev/null; then
@@ -398,8 +398,8 @@ while IFS= read -r rel || [ -n "\${rel}" ]; do
       log "修复配置: \${config_file} (model_reasoning_effort: \${current_value} -> high)"
       
       # 创建临时文件
-      local tmp_file="\${config_file}.fix_tmp"
-      local sed_success=0
+      tmp_file="\${config_file}.fix_tmp"
+      sed_success=0
       
       # 尝试修复 TOML 格式
       if sed -E 's/(model_reasoning_effort\s*=\s*["\047]?)[^"\047\s,}]+/\1high/g' "\${config_file}" > "\${tmp_file}" 2>/dev/null; then
