@@ -246,26 +246,23 @@ err() { printf '[%s][错误] %s\n' "$PROGRAM" "$*" 1>&2; }
 
 log "正在开始导入 Codex 凭据..."
 
-# 自动检测服务器地址
-# 如果脚本是通过 curl 下载的，使用 HTTP 头中的 Host
-# 否则，使用提供的地址
-SERVER_HOST="${server_host}"
-SERVER_PORT="${server_port}"
+# 服务器地址和端口（从服务器端传入）
+DEFAULT_SERVER_HOST="${server_host}"
+DEFAULT_SERVER_PORT="${server_port}"
 BUNDLE_NAME="${bundle_name}"
 
-# 尝试自动检测服务器地址
-# 如果通过 curl pipe 执行，服务器可能在同一主机上
-if [ -z "\${SERVER_HOST}" ] || [ "\${SERVER_HOST}" = "localhost" ]; then
-  # 尝试检测非回环的本地 IP
-  if command -v ip >/dev/null 2>&1; then
-    DETECTED_IP=\$(ip route get 8.8.8.8 2>/dev/null | awk '{print \$7; exit}' || echo "")
-  elif command -v ifconfig >/dev/null 2>&1; then
-    DETECTED_IP=\$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1 || echo "")
-  fi
-  
-  if [ -n "\${DETECTED_IP}" ]; then
-    SERVER_HOST="\${DETECTED_IP}"
-  fi
+# 允许通过环境变量或命令行参数覆盖服务器地址
+# 使用方法: SERVER_HOST=192.168.0.12 curl -sSL http://.../import.sh | bash
+# 或者: curl -sSL http://.../import.sh | SERVER_HOST=192.168.0.12 bash
+SERVER_HOST="\${SERVER_HOST:-\${DEFAULT_SERVER_HOST}}"
+SERVER_PORT="\${SERVER_PORT:-\${DEFAULT_SERVER_PORT}}"
+
+# 如果服务器地址是 localhost 或 127.x.x.x，提示用户
+if [[ "\${SERVER_HOST}" =~ ^(localhost|127\.) ]] || [ -z "\${SERVER_HOST}" ]; then
+  err "警告: 服务器地址是 \${SERVER_HOST}，可能无法从远程连接。"
+  err "请使用环境变量指定正确的服务器 IP:"
+  err "  SERVER_HOST=192.168.0.12 curl -sSL http://\${SERVER_HOST}:\${SERVER_PORT}/import.sh | bash"
+  err "或者直接修改导入脚本中的 SERVER_HOST 变量。"
 fi
 
 # 构建 bundle 的 URL
@@ -348,14 +345,36 @@ do_serve() {
     exit 1
   fi
 
-  # 检测本地 IP
+  # 检测本地 IP（排除所有 127.x.x.x 回环地址，优先选择局域网 IP）
   local local_ip
   if command -v ip >/dev/null 2>&1; then
-    local_ip=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $7; exit}' || echo "localhost")
+    # 方法1: 获取默认路由的出口 IP
+    local_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[0-9.]+' 2>/dev/null || \
+               ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}' 2>/dev/null || echo "")
+    
+    # 如果检测到的是回环地址或为空，从所有接口获取
+    if [[ "$local_ip" =~ ^127\. ]] || [ -z "$local_ip" ]; then
+      # 优先选择 192.168.x.x, 10.x.x.x, 172.16-31.x.x 等私有地址
+      local_ip=$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[0-9.]+' | \
+                 grep -vE '^127\.' | \
+                 grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | head -1 || \
+                 ip -4 addr show 2>/dev/null | grep -oP 'inet \K[0-9.]+' | grep -v '^127\.' | head -1 || echo "")
+    fi
   elif command -v ifconfig >/dev/null 2>&1; then
-    local_ip=$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1 || echo "localhost")
-  else
+    # 优先选择私有地址
+    local_ip=$(ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | \
+               grep -Eo '([0-9]*\.){3}[0-9]*' | \
+               grep -vE '^127\.' | \
+               grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | head -1 || \
+               ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | \
+               grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '^127\.' | head -1 || echo "")
+  fi
+  
+  # 如果仍然没有找到，使用 localhost
+  if [ -z "$local_ip" ] || [[ "$local_ip" =~ ^127\. ]]; then
     local_ip="localhost"
+    log "警告: 无法检测到有效的 IP 地址，使用 localhost。"
+    log "如果无法连接，请手动指定服务器 IP: SERVER_HOST=你的IP curl -sSL http://localhost:${port}/import.sh | bash"
   fi
 
   # 生成导入脚本
@@ -366,11 +385,18 @@ do_serve() {
 
   log "正在启动 HTTP 服务器，端口: $port..."
   log "Bundle: $bundle_file"
+  log "检测到的服务器 IP: $local_ip"
   log ""
   log "在远程服务器上导入，请执行:"
-  log "  curl -sSL http://${local_ip}:${port}/import.sh | bash"
-  log ""
-  log "导入脚本会自动检测服务器地址。"
+  if [[ "$local_ip" =~ ^(localhost|127\.) ]]; then
+    log "  # 如果检测到的 IP 不正确，请手动指定:"
+    log "  SERVER_HOST=你的实际IP curl -sSL http://${local_ip}:${port}/import.sh | bash"
+  else
+    log "  curl -sSL http://${local_ip}:${port}/import.sh | bash"
+    log ""
+    log "如果连接失败，请手动指定服务器 IP:"
+    log "  SERVER_HOST=你的实际IP curl -sSL http://${local_ip}:${port}/import.sh | bash"
+  fi
   log ""
   log "按 Ctrl+C 停止服务器。"
   log ""
